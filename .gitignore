@@ -1,0 +1,41 @@
+# Build artifacts
+consent-accelerator-v1/**/target/
+*.class
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.project
+.classpath
+.settings/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Keys (private) — keep public key and JWKS
+ciba-test-key.pem
+
+# Temp
+tmp/
+*.tmp
+*.log
+
+# Node
+node_modules/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Playwright
+.playwright-mcp/
+
+# Docker volumes
+mysql-data/
+
+# External reference docs (separate repos)
+docs-apim/
+docs-is/
