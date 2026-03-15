@@ -344,6 +344,15 @@ public class FSConsentServlet extends HttpServlet {
                 return "Gender";
             case "nationality":
                 return "Nationality";
+            case "marital_status":
+            case "marital:status":
+                return "Marital Status";
+            case "tax_id":
+            case "tax:id":
+                return "Tax Identification Number";
+            case "source_of_funds":
+            case "source:of:funds":
+                return "Source of Funds";
 
             // Other categories
             case "identifiers":

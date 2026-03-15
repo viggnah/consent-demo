@@ -14,6 +14,9 @@ const kycDatabase = {
       place_of_birth: "Colombo",
       gender: "Male",
       nationality: "Sri Lankan",
+      marital_status: "Married",
+      tax_id: "TIN-LK-2019-84523",
+      source_of_funds: "Employment Income",
       identifiers: {
         national_id: "NIN-1234567890",
         passport_number: "N1234567",
@@ -50,6 +53,9 @@ const kycDatabase = {
       place_of_birth: "Kandy",
       gender: "Female",
       nationality: "Sri Lankan",
+      marital_status: "Single",
+      tax_id: "TIN-LK-2020-91247",
+      source_of_funds: "Employment Income",
       identifiers: {
         national_id: "NIN-9876543210",
         passport_number: "N7654321",
@@ -75,6 +81,84 @@ const kycDatabase = {
         annual_income: 6000000
       }
     }
+  },
+  "NIN-5566778899": {
+    person: {
+      first_name: "Amal",
+      middle_name: "Kumara",
+      last_name: "Perera",
+      full_name: "Amal Kumara Perera",
+      date_of_birth: "1978-11-02",
+      place_of_birth: "Matara",
+      gender: "Male",
+      nationality: "Sri Lankan",
+      marital_status: "Married",
+      tax_id: "TIN-LK-2015-33891",
+      source_of_funds: "Business Income",
+      identifiers: {
+        national_id: "NIN-5566778899",
+        passport_number: "N3344556",
+        driving_license: "DL-556677"
+      },
+      contact: {
+        email: "amal.perera@example.com",
+        home_phone: "+94412345678",
+        mobile_phone: "+94773344556",
+        address: {
+          line1: "78 Galle Road",
+          line2: "Matara",
+          city: "Matara",
+          state: "Southern Province",
+          postal_code: "81000",
+          country: "Sri Lanka"
+        }
+      },
+      employment: {
+        employer: "Self Employed - Perera Gems & Jewellery",
+        designation: "Owner",
+        employment_type: "Self Employed",
+        annual_income: 7200000
+      }
+    }
+  },
+  "NIN-1122334455": {
+    person: {
+      first_name: "Nimal",
+      middle_name: "Sanjeewa",
+      last_name: "Fernando",
+      full_name: "Nimal Sanjeewa Fernando",
+      date_of_birth: "1992-06-18",
+      place_of_birth: "Negombo",
+      gender: "Male",
+      nationality: "Sri Lankan",
+      marital_status: "Single",
+      tax_id: "TIN-LK-2022-67102",
+      source_of_funds: "Employment Income",
+      identifiers: {
+        national_id: "NIN-1122334455",
+        passport_number: "N9988776",
+        driving_license: "DL-112233"
+      },
+      contact: {
+        email: "nimal.fernando@example.com",
+        home_phone: "+94312345678",
+        mobile_phone: "+94775566778",
+        address: {
+          line1: "23 Lewis Place",
+          line2: "Negombo",
+          city: "Negombo",
+          state: "Western Province",
+          postal_code: "11500",
+          country: "Sri Lanka"
+        }
+      },
+      employment: {
+        employer: "Ceylon Tech Solutions",
+        designation: "Software Engineer",
+        employment_type: "Full Time",
+        annual_income: 3600000
+      }
+    }
   }
 };
 
@@ -89,6 +173,9 @@ const defaultPerson = {
     place_of_birth: "Galle",
     gender: "Male",
     nationality: "Sri Lankan",
+    marital_status: "Single",
+    tax_id: "TIN-LK-0000-00000",
+    source_of_funds: "Not Specified",
     identifiers: {
       national_id: "UNKNOWN",
       passport_number: "N0000000",
