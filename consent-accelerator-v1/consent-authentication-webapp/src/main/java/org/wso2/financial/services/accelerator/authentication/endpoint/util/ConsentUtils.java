@@ -72,16 +72,19 @@ public class ConsentUtils {
      * @param servletContext servlet context
      * @return true if update was successful, false otherwise
      */
-    public static JSONObject updateConsent(String consentId, JSONObject updatedConsent, ServletContext servletContext) {
+    public static JSONObject updateConsent(String consentId, JSONObject updatedConsent,
+                                              String clientId, ServletContext servletContext) {
 
         // Construct the consent API URL
         String consentApiUrl = CONSENT_API_BASE_URL + consentId;
+        // Use provided clientId, fall back to env var
+        String resolvedClientId = (clientId != null && !clientId.isEmpty()) ? clientId : CLIENT_ID;
         try (CloseableHttpClient client = HttpClientBuilder.create().build()) {
             HttpPut updateRequest = new HttpPut(consentApiUrl);
 
             // Add required headers
             updateRequest.addHeader("org-id", ORG_ID);
-            updateRequest.addHeader("TPP-client-id", CLIENT_ID);
+            updateRequest.addHeader("TPP-client-id", resolvedClientId);
             updateRequest.addHeader("Content-Type", Constants.JSON);
             updateRequest.addHeader("Accept", Constants.JSON);
 
@@ -122,7 +125,7 @@ public class ConsentUtils {
      * @return Boolean true if mandatory, false if not mandatory, null if not found or error occurred
      */
     public static Boolean resolvePurposeMandatory(String purposeName, String elementName,
-                                                  ServletContext servletContext) {
+                                                  String clientId, ServletContext servletContext) {
         if (purposeName == null || purposeName.trim().isEmpty() ||
             elementName == null || elementName.trim().isEmpty()) {
             log.warn("Purpose name or element name is null or empty");
@@ -135,8 +138,10 @@ public class ConsentUtils {
             log.debug("Calling consent purposes API: {}", apiUrl);
 
             HttpGet request = new HttpGet(apiUrl);
+            // Use provided clientId, fall back to env var
+            String resolvedClientId = (clientId != null && !clientId.isEmpty()) ? clientId : CLIENT_ID;
             request.addHeader("org-id", ORG_ID);
-            request.addHeader("TPP-client-id", CLIENT_ID);
+            request.addHeader("TPP-client-id", resolvedClientId);
             request.addHeader("Accept", Constants.JSON);
 
             HttpResponse response = client.execute(request);
@@ -166,7 +171,7 @@ public class ConsentUtils {
                 JSONObject purpose = dataArray.getJSONObject(i);
 
                 if (purposeName.equals(purpose.getString("name")) &&
-                    CLIENT_ID.equals(purpose.optString("clientId", ""))) {
+                    resolvedClientId.equals(purpose.optString("clientId", ""))) {
                     // Found the matching purpose, now find the element
                     if (purpose.has("elements")) {
                         JSONArray elements = purpose.getJSONArray("elements");
@@ -188,7 +193,7 @@ public class ConsentUtils {
                 }
             }
 
-            log.warn("Purpose '{}' with clientId '{}' not found", purposeName, CLIENT_ID);
+            log.warn("Purpose '{}' with clientId '{}' not found", purposeName, resolvedClientId);
             return null;
 
         } catch (IOException e) {

@@ -256,7 +256,8 @@ public class FSConsentConfirmServlet extends HttpServlet {
         authorizationsArray.put(authorization);
         consentUpdateRequest.put("authorizations", authorizationsArray);
 
-        JSONObject updateConsentResponse = ConsentUtils.updateConsent(consentId, consentUpdateRequest, servletContext);
+        JSONObject updateConsentResponse = ConsentUtils.updateConsent(consentId, consentUpdateRequest,
+                consentUpdateRequest.optString("clientId", null), servletContext);
         if (updateConsentResponse != null) {
             log.info("Consent update success.");
             return updateConsentResponse;

@@ -257,6 +257,7 @@ public class FSConsentServlet extends HttpServlet {
         // Extract valid purposes from validPurposes array
         if (dataSet.has("consentDetails")) {
             JSONObject consentDetailsObject = dataSet.getJSONObject("consentDetails");
+            String consentClientId = consentDetailsObject.optString("clientId", null);
             if (consentDetailsObject.has("purposes")) {
                 JSONArray purposes = consentDetailsObject.getJSONArray("purposes");
                 for (int i = 0; i < purposes.length(); i++) {
@@ -272,7 +273,7 @@ public class FSConsentServlet extends HttpServlet {
                             purposeMap.put("isUserApproved",
                                     element.optBoolean("isUserApproved", false) ? "true" : "false");
                             Boolean isMandatory = ConsentUtils.resolvePurposeMandatory(purposeName, element.getString("name"),
-                                    getServletContext());
+                                    consentClientId, getServletContext());
                             purposeMap.put("isMandatory", String.valueOf(isMandatory));
                             purposeDataMap.add(purposeMap);
                         }
