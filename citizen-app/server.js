@@ -4,7 +4,7 @@ const path = require('path');
 
 const app = express();
 const PORT = 3011;
-const BANK_PORTAL = 'http://localhost:3010';
+const BANK_PORTAL = process.env.BANK_PORTAL_URL || 'http://localhost:3010';
 
 app.use(express.static(path.join(__dirname, 'public')));
 

@@ -4,13 +4,13 @@ const PORT = 3002;
 
 // Mock KYC data - person information for Bank KYC by NIN (National Identification Number)
 const kycDatabase = {
-  "NIN-1234567890": {
+  "CM19951234567890": {
     person: {
       first_name: "John",
       middle_name: "Michael",
       last_name: "Doe",
       full_name: "John Michael Doe",
-      date_of_birth: "1985-03-15",
+      date_of_birth: "1995-03-15",
       place_of_birth: "Colombo",
       gender: "Male",
       nationality: "Sri Lankan",
@@ -18,7 +18,7 @@ const kycDatabase = {
       tax_id: "TIN-LK-2019-84523",
       source_of_funds: "Employment Income",
       identifiers: {
-        national_id: "NIN-1234567890",
+        national_id: "CM19951234567890",
         passport_number: "N1234567",
         driving_license: "DL-987654"
       },
@@ -43,7 +43,7 @@ const kycDatabase = {
       }
     }
   },
-  "NIN-9876543210": {
+  "CF19900722123456": {
     person: {
       first_name: "Jane",
       middle_name: "Elizabeth",
@@ -57,7 +57,7 @@ const kycDatabase = {
       tax_id: "TIN-LK-2020-91247",
       source_of_funds: "Employment Income",
       identifiers: {
-        national_id: "NIN-9876543210",
+        national_id: "CF19900722123456",
         passport_number: "N7654321",
         driving_license: "DL-123456"
       },
@@ -82,7 +82,7 @@ const kycDatabase = {
       }
     }
   },
-  "NIN-5566778899": {
+  "CF19781234567890": {
     person: {
       first_name: "Amal",
       middle_name: "Kumara",
@@ -96,7 +96,7 @@ const kycDatabase = {
       tax_id: "TIN-LK-2015-33891",
       source_of_funds: "Business Income",
       identifiers: {
-        national_id: "NIN-5566778899",
+        national_id: "CF19951234567890",
         passport_number: "N3344556",
         driving_license: "DL-556677"
       },

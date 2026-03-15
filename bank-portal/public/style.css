@@ -167,6 +167,8 @@ body {
 .btn-small { padding: 4px 12px; font-size: 12px; }
 .btn-link { background: none; color: var(--brand-light); padding: 4px 8px; font-size: 13px; text-decoration: underline; }
 .btn-link:hover { color: var(--brand-dark); }
+.btn-delete { color: #c0392b; }
+.btn-delete:hover { color: #96281b; }
 
 /* Checklist */
 .checklist { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }

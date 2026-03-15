@@ -74,13 +74,19 @@ document.getElementById('btn-submit-kyc').addEventListener('click', async () => 
   btn.textContent = 'Submitting...';
 
   try {
+    // Collect selected elements from checkboxes
+    const selectedElements = Array.from(
+      document.querySelectorAll('#elements-checklist input[type="checkbox"]:checked')
+    ).map(cb => cb.value);
+
     const r = await fetch(`${API}/api/kyc-request`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         nin,
         customerName: document.getElementById('name-input').value.trim() || 'N/A',
-        accountType: document.getElementById('account-type').value
+        accountType: document.getElementById('account-type').value,
+        elements: selectedElements
       })
     });
 
@@ -179,7 +185,7 @@ function updateDashboard(data) {
       <td>${escapeHtml(r.customerName)}</td>
       <td>${escapeHtml(r.accountType)}</td>
       <td>${statusBadge(r.status)}</td>
-      <td><button class="btn-link" onclick="viewDetail('${r.id}')">View</button></td>
+      <td><button class="btn-link" onclick="viewDetail('${r.id}')">View</button> <button class="btn-link btn-delete" onclick="deleteRequest('${r.id}')">Delete</button></td>
     </tr>
   `).join('');
 }
@@ -205,9 +211,20 @@ function updateRequestsTable(data) {
       <td>${escapeHtml(r.customerName)}</td>
       <td>${escapeHtml(r.accountType)}</td>
       <td>${statusBadge(r.status)}</td>
-      <td><button class="btn-link" onclick="viewDetail('${r.id}')">View Details</button></td>
+      <td><button class="btn-link" onclick="viewDetail('${r.id}')">View Details</button> <button class="btn-link btn-delete" onclick="deleteRequest('${r.id}')">Delete</button></td>
     </tr>
   `).join('');
+}
+
+// ===== Delete request =====
+async function deleteRequest(id) {
+  if (!confirm('Delete this request?')) return;
+  try {
+    await fetch(`${API}/api/requests/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    refreshRequests();
+  } catch (e) {
+    alert('Failed to delete request');
+  }
 }
 
 // ===== Detail view =====

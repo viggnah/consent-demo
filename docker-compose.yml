@@ -113,6 +113,53 @@ services:
     networks:
       - consent-network
 
+  # Bank Portal (Branch Officer UI)
+  bank-portal:
+    build:
+      context: ./bank-portal
+      dockerfile: Dockerfile
+    container_name: consent-bank-portal
+    ports:
+      - "3010:3010"
+    environment:
+      APIM_BASE: "https://consent-apim:9443"
+      APIM_GW: "https://consent-apim:8243"
+      IS_BASE: "https://consent-is:9446"
+      IS_PUBLIC_BASE: "https://localhost:9446"
+      OPENFGC_BASE: "http://consent-openfgc:3000"
+      PRIVATE_KEY_PATH: "/keys/ciba-test-key.pem"
+      IS_SCRIPT_PATH: "/keys/is-conditional-script.js"
+      NODE_TLS_REJECT_UNAUTHORIZED: "0"
+    volumes:
+      - ./ciba-test-key.pem:/keys/ciba-test-key.pem:ro
+      - ./is-conditional-script.js:/keys/is-conditional-script.js:ro
+    depends_on:
+      api-manager:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3010/api/status"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - consent-network
+
+  # Citizen App (Mobile Consent UI)
+  citizen-app:
+    build:
+      context: ./citizen-app
+      dockerfile: Dockerfile
+    container_name: consent-citizen-app
+    ports:
+      - "3011:3011"
+    environment:
+      BANK_PORTAL_URL: "http://consent-bank-portal:3010"
+    depends_on:
+      bank-portal:
+        condition: service_healthy
+    networks:
+      - consent-network
+
 volumes:
   mysql-data:
 

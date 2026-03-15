@@ -150,7 +150,7 @@ public class FSConsentConfirmServlet extends HttpServlet {
 
         URI authorizeRequestRedirect = null;
         try {
-            authorizeRequestRedirect = authorizeRequest("true", browserCookies, user, sessionDataKey);
+            authorizeRequestRedirect = authorizeRequest(approval ? "approve" : "deny", browserCookies, user, sessionDataKey);
         } catch (Exception e) {
             throw new RuntimeException(e);
         }

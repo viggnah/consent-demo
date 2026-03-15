@@ -10,6 +10,8 @@ A consent management demo showing how a Third-Party Provider (TPP) can access ci
 | **WSO2 API Manager 4.5.0** | API gateway | 9443/8243 | `consent-apim` |
 | **Mock KYC Backend** | Node.js Express | 3002 | `consent-mock-backend` |
 | **MySQL 8.0** | OpenFGC database | 3306 | `consent-mysql` |
+| **Bank Portal** | Node.js Express | 3010 | `consent-bank-portal` |
+| **Citizen App** | Node.js Express | 3011 | `consent-citizen-app` |
 | **JWKS Server** | Python HTTP | 8899 | (host) |
 
 ---
@@ -103,14 +105,11 @@ A consent management demo showing how a Third-Party Provider (TPP) can access ci
 - Copies `consent-enforcement-payload-mediator-1.0.0-SNAPSHOT.jar` to APIM dropins
 
 ### Step 9: Consent Elements & Purposes in OpenFGC ✅
-- Created 6 consent elements (KYC data fields) with JSON paths and resource paths:
-  - nationality (`$.person.nationality`, `/user/{nic}`)
-  - gender (`$.person.gender`, `/user/{nic}`)
-  - date_of_birth (`$.person.date_of_birth`, `/user/{nic}`)
-  - first_name (`$.person.first_name`, `/user/{nic}`)
-  - last_name (`$.person.last_name`, `/user/{nic}`)
-  - contact (`$.person.contact`, `/user/{nic}`)
-- Purpose: `kyc_data_access` with 3 mandatory (date_of_birth, first_name, last_name) + 3 optional
+- Created 13 consent elements (KYC data fields) with JSON paths and resource paths:
+  - **Mandatory (5)**: first_name, last_name, date_of_birth, gender, nationality
+  - **Optional (8)**: contact, full_name, middle_name, place_of_birth, marital_status, occupation, identifiers, address
+- Purpose: `kyc_data_access` with mandatory + optional elements
+- **Note**: Later changed to create unique purposes per request for element filtering (see Step 40)
 
 ### Step 10: IS Application & Authenticators ✅
 - OAuth2 app created via IS REST API
@@ -308,13 +307,167 @@ A consent management demo showing how a Third-Party Provider (TPP) can access ci
 
 ---
 
+## Phase 6: Bank Portal & Citizen App (Sessions 8–9)
+
+### Step 39: Bank Portal — Delete Request Feature ✅
+- Added `DELETE /api/requests/:id` route in `bank-portal/server.js`
+- Added Delete buttons to dashboard and all-requests tables in `app.js`
+- Added `.btn-delete` styling (red color) in `style.css`
+
+### Step 40: Bank Portal — Optional Element Filtering ✅
+- **Problem**: All consent elements were shown regardless of frontend selection — if user selected 6 of 13, all 13 still appeared in the consent
+- **Root cause**: OpenFGC resolves ALL elements tied to a purpose definition, regardless of what the caller specifies
+- **Fix (workaround)**: Create a unique purpose per request (`kyc_data_access_<timestamp>`) containing only the selected elements
+  - `app.js` collects checked checkbox values and sends `elements[]` array in POST body
+  - `server.js` accepts `elements` array in the POST handler and creates a purpose with only those elements
+  - Each consent then has exactly the selected elements
+- **Verified**: Requesting 6 elements → consent has exactly 6; requesting all 13 → consent has 13
+
+### Step 41: Mock Backend NIN Data Update ✅
+- **Problem**: Mock backend returned "Demo User Test" data even after editing `server.js`
+- **Root cause**: `docker compose restart` doesn't rebuild the image — old code baked into the container
+- **Fix**: `docker compose build mock-backend && docker compose up -d mock-backend`
+- Updated NIN mappings:
+  - `NIN-1234567890` → `CM19951234567890` (John Doe, DOB 1995-03-15)
+  - `NIN-9876543210` → `CF19900722123456` (Jane Smith)
+  - `NIN-5566778899` → `CF19781234567890` (Amal Kumara)
+- Updated `index.html`: NIN input label changed to "National Identification Number", default value `CM19951234567890`, customer name default `John Doe`
+
+### Step 42: Reject Flow — "API Error: 401" Fix (Attempt 1) ❌ → (Attempt 2) ✅
+- **Problem**: When citizen rejected consent, bank portal showed "Error / API Error: 401" instead of "Rejected"
+
+- **Attempt 1 (Session 8)**: Changed `authorizeRequest("true")` to `authorizeRequest(approval ? "true" : "false")`
+  - ❌ **FAILED** — IS `/oauth2/authorize` endpoint does NOT accept `"true"/"false"` strings
+  - The custom consent page's form has `consent` field set to `true`/`false` by `approvedConsent()`/`denyConsent()` JS functions, but what gets POSTed to IS's authorize endpoint by the servlet is a different parameter
+  - IS's own default consent flow uses `"approve"/"deny"` strings (see `auth-functions.js` → `approvedDefaultClaim()` / `denyDefaultClaim()`)
+
+- **Attempt 2 (Session 9)**: Changed to `authorizeRequest(approval ? "approve" : "deny")`
+  - ✅ **SUCCESS** — IS correctly processes `"deny"` and redirects to `redirect_uri` with `error=access_denied`
+  - File: `FSConsentConfirmServlet.java` line 153
+
+- **Defense-in-depth**: Added OpenFGC consent status check in bank-portal polling loop
+  - After receiving a token, check the consent's authorization status in OpenFGC
+  - If `authorizationStatus === "rejected"`, set status to `'rejected'` without calling KYC API
+  - This catches cases where the CIBA token might be issued but consent was actually rejected
+
+### Step 43: Reject Flow — oidcdebugger.com Redirect Issue ⚠️ IN PROGRESS
+- **Problem**: On reject, user redirected to `https://oidcdebugger.com/debug?error=access_denied&error_description=access_denied,+User+denied+the+consent.` and request stays `pending` in bank portal
+- **Root cause (reject)**: IS correctly denies and redirects to the `redirect_uri` with an error — this is expected OIDC behavior for denied consent. The bank portal should detect this via the CIBA token poll (which should return an `access_denied` error when consent is denied).
+- **Root cause (approve stays pending)**: The web auth link `nonce` parameter was a random UUID instead of the CIBA `auth_req_id`. IS uses the `nonce` to correlate the web auth link with the CIBA session. Without the correct `auth_req_id`, IS couldn't link the consent approval back to the pending CIBA request.
+- **Fix**: Changed `getWebAuthLink()` to accept `authReqId` parameter and use it as the `nonce` value:
+  ```js
+  // Before (broken)
+  async function getWebAuthLink(consentId) { nonce: uuidv4(), ... }
+  // After (fixed)
+  async function getWebAuthLink(consentId, authReqId) { nonce: authReqId, ... }
+  ```
+- **Status**: Fix deployed to Docker container. Both approve and reject flows should now work correctly because IS can correlate the web auth link back to the CIBA session via the nonce=auth_req_id.
+
+### Step 44: Dockerize Bank Portal & Citizen App ✅
+- **Problem**: Bank portal and citizen app were running locally (`node server.js`), not in docker-compose. Citizen app was down when not manually started.
+- **Solution**: Created Dockerfiles and added both to `docker-compose.yml`
+
+- **bank-portal/Dockerfile** (NEW):
+  - `FROM node:20-alpine`, copies package files, `npm ci --production`, copies server.js and public/
+  - Exposes port 3010
+
+- **citizen-app/Dockerfile** (NEW):
+  - Same pattern as bank-portal, exposes port 3011
+
+- **docker-compose.yml additions**:
+  - `bank-portal` service: builds from `./bank-portal`, depends on `api-manager` healthy
+  - `citizen-app` service: builds from `./citizen-app`, depends on `bank-portal` healthy
+
+### Step 45: Bank Portal URL Configuration for Docker ✅
+- **Problem**: Bank portal had all URLs hardcoded to `localhost` — doesn't work inside Docker network
+- **Fix**: Made all URLs env-configurable:
+
+  | Env Var | Docker Value | Default (local) | Purpose |
+  |---------|-------------|------------------|---------|
+  | `APIM_BASE` | `https://consent-apim:9443` | `https://localhost:9443` | APIM publisher API |
+  | `APIM_GW` | `https://consent-apim:8243` | `https://localhost:8243` | API gateway calls |
+  | `IS_BASE` | `https://consent-is:9446` | `https://localhost:9446` | Server-to-server IS calls |
+  | `IS_PUBLIC_BASE` | `https://localhost:9446` | `https://localhost:9446` | Browser-facing IS URLs |
+  | `OPENFGC_BASE` | `http://consent-openfgc:3000` | `http://localhost:3000` | Consent management |
+  | `PRIVATE_KEY_PATH` | `/keys/ciba-test-key.pem` | `../ciba-test-key.pem` | CIBA JWT signing key |
+  | `IS_SCRIPT_PATH` | `/keys/is-conditional-script.js` | `../is-conditional-script.js` | IS conditional auth script |
+  | `BANK_PORTAL_URL` | `http://consent-bank-portal:3010` | `http://localhost:3010` | Citizen app → bank portal |
+
+- **IS_PUBLIC_BASE vs IS_BASE distinction**: Critical for Docker. `IS_BASE` is used for server-to-server calls within the Docker network (e.g., CIBA authorize, token exchange). `IS_PUBLIC_BASE` is used for browser-facing URLs (web auth link construction, JWT `aud` claim) because the browser resolves `localhost:9446` via port mapping.
+
+- **Volume mounts**: `ciba-test-key.pem` and `is-conditional-script.js` mounted as read-only volumes into bank-portal container since they live in the parent directory.
+
+### Step 46: Docker Startup Issues & Fixes ✅
+- **Issue 1: ENOENT for is-conditional-script.js**
+  - Bank portal reads `is-conditional-script.js` from parent dir — doesn't exist in container
+  - Fix: Made path configurable via `IS_SCRIPT_PATH` env var + mounted as volume
+
+- **Issue 2: CIBA `aud` parameter mismatch**
+  - JWT `aud` was set to `${IS_BASE}/oauth2/token` → resolved to `consent-is:9446` inside Docker
+  - IS expected `localhost:9446` as the audience
+  - Fix: Changed JWT `aud` to use `${IS_PUBLIC_BASE}/oauth2/token`
+
+### Step 47: Remove docker logs Hack for Web Auth Link ✅
+- **Problem**: Previously extracted web auth link by parsing `docker logs consent-is` output — fragile and doesn't work inside Docker
+- **Fix**: Construct the URL directly from known CIBA parameters:
+  ```js
+  function getWebAuthLink(consentId, authReqId) {
+    const params = new URLSearchParams({
+      binding_message: 'KYCAccess',
+      client_id: CLIENT_ID,
+      nonce: authReqId,  // MUST be auth_req_id for CIBA correlation
+      response_type: 'cibaAuthCode',
+      scope: 'gov openid',
+      intent_id: consentId,
+      redirect_uri: REDIRECT_URI,
+      ciba_web_auth_link: 'true',
+      login_hint: 'john123',
+      prompt: 'consent'
+    });
+    return `${IS_PUBLIC_BASE}/oauth2/authorize?${params.toString()}`;
+  }
+  ```
+
+### Step 48: All 7 Containers Running ✅
+- Verified all containers healthy:
+  - `consent-mysql` (MySQL 8.0)
+  - `consent-openfgc` (Go consent server)
+  - `consent-mock-backend` (Node.js KYC API)
+  - `consent-is` (WSO2 IS 7.1.0)
+  - `consent-apim` (WSO2 APIM 4.5.0)
+  - `consent-bank-portal` (Node.js bank officer UI) — NEW
+  - `consent-citizen-app` (Node.js citizen mobile UI) — NEW
+- End-to-end KYC request flow verified from Docker (curl tests)
+- Element filtering verified: requesting 6 elements → consent has exactly 6
+- Citizen app fetching pending requests over Docker network
+
+### Step 49: WAR Deployment Process ✅
+- WAR with `approve`/`deny` fix deployed to IS container:
+  ```bash
+  cd consent-accelerator-v1 && mvn clean install -DskipTests -q
+  docker cp docker/is/webapps/fs#authenticationendpoint.war consent-is:/home/wso2carbon/wso2is-7.1.0/repository/deployment/server/webapps/
+  docker exec consent-is rm -rf /home/wso2carbon/wso2is-7.1.0/repository/deployment/server/webapps/fs#authenticationendpoint
+  # Wait ~5s for IS to auto-expand the WAR
+  ```
+
+---
+
+## Outstanding / Known Issues
+
+1. **Approve + Reject flow needs browser testing**: The nonce=auth_req_id fix (Step 43) needs manual browser verification — create KYC request, open web auth link, login as john123/John@123, approve/reject, verify bank portal status updates.
+2. **Reject redirects to oidcdebugger.com**: This is expected OIDC behavior — IS redirects to the configured `redirect_uri` with `error=access_denied`. The bank portal detects rejection via the CIBA token poll error, not via the redirect. The citizen should close the browser tab after seeing the redirect.
+3. **JWKS server still on host**: Runs via `python3 -m http.server 8899` on the host machine. Bank portal references it via `host.docker.internal:8899`. Could be dockerized for full docker-compose coverage.
+4. **docker-compose.yml `version: '3.8'`**: Generates deprecation warning — attribute is obsolete in modern Docker Compose.
+
+---
+
 ## Current Workspace Structure (Clean)
 
 ```
 consent-demo/
 ├── PROGRESS.md                     # This file
 ├── demo.py                         # Main demo script (interactive, 5 phases)
-├── docker-compose.yml              # Infrastructure (5 containers)
+├── docker-compose.yml              # Infrastructure (7 containers)
 ├── deployment.toml                 # IS deployment config
 ├── instructions.md                 # Original setup instructions
 ├── is-conditional-script.js        # IS conditional auth script
@@ -327,6 +480,17 @@ consent-demo/
 │   ├── is/                         # IS Dockerfile + dropins + webapp
 │   ├── mysql/                      # MySQL init
 │   └── openfgc/                    # OpenFGC Dockerfile
+├── bank-portal/                    # Bank Officer Portal (branch officer UI)
+│   ├── Dockerfile
+│   ├── server.js                   # Express backend (APIM, IS, CIBA, OpenFGC integration)
+│   └── public/                     # Static HTML/CSS/JS frontend
+│       ├── index.html
+│       ├── app.js
+│       └── style.css
+├── citizen-app/                    # Citizen Mobile Consent App
+│   ├── Dockerfile
+│   ├── server.js                   # Express proxy to bank portal
+│   └── public/                     # Mobile-viewport static frontend
 ├── mock-backend/                   # Mock KYC API
 │   ├── Dockerfile
 │   └── server.js
@@ -355,11 +519,21 @@ cd consent-accelerator-v1 && mvn clean install -DskipTests -q
 # docker/is/webapps/fs#authenticationendpoint.war
 # docker/apim/dropins/consent-enforcement-payload-mediator-1.0.0-SNAPSHOT.jar
 
-# Start infrastructure:
+# Start all infrastructure (7 containers):
 docker compose up -d
 
-# Start JWKS server:
+# Start JWKS server (on host, still needed):
 cd /path/to/consent-demo && python3 -m http.server 8899 &
+
+# Deploy WAR update to running IS (without full rebuild):
+docker cp docker/is/webapps/fs#authenticationendpoint.war consent-is:/home/wso2carbon/wso2is-7.1.0/repository/deployment/server/webapps/
+docker exec consent-is rm -rf /home/wso2carbon/wso2is-7.1.0/repository/deployment/server/webapps/fs#authenticationendpoint
+# Wait ~5s for IS to auto-expand the WAR
+
+# Rebuild individual app containers after code changes:
+docker compose build bank-portal && docker compose up -d bank-portal
+docker compose build citizen-app && docker compose up -d citizen-app
+docker compose build mock-backend && docker compose up -d mock-backend
 
 # Run demo:
 python3 demo.py
@@ -378,3 +552,8 @@ python3 demo.py
 7. **TPP Client ID vs OAuth Client ID** — Independent values; OpenFGC uses its own client ID
 8. **APIM stale key mappings** — Ghost mappings can exist without actual keys; must detect and recreate app
 9. **WSO2 Maven repos unreliable** — Extract dependencies from Docker images as fallback
+10. **IS consent approve/deny strings** — IS `/oauth2/authorize` expects `"approve"` / `"deny"`, NOT `"true"` / `"false"`. The custom consent page's form field uses `true`/`false` but the servlet must translate to `approve`/`deny` when posting to IS's authorize endpoint.
+11. **CIBA web auth link nonce = auth_req_id** — IS uses the `nonce` parameter in the web auth link to correlate with the CIBA session. Must pass the actual `auth_req_id` from the CIBA response, not a random UUID.
+12. **Docker `restart` vs `build`** — `docker compose restart` reuses the existing image; code changes to sources require `docker compose build <service>` to rebuild the image.
+13. **Docker networking: IS_PUBLIC_BASE vs IS_BASE** — Inside Docker, services communicate via container names (`consent-is:9446`), but browser-facing URLs must use `localhost:9446` (port-mapped). Use separate env vars for server-to-server vs browser-facing URLs.
+14. **OpenFGC resolves ALL elements from purpose** — Cannot selectively include elements per consent from a shared purpose. Workaround: create a unique purpose per request with only the desired elements.

@@ -13,10 +13,11 @@ app.use(express.static(path.join(__dirname, 'public')));
 const PORT = 3010;
 
 // ----- Configuration -----
-const APIM_BASE = 'https://localhost:9443';
-const APIM_GW = 'https://localhost:8243';
-const IS_BASE = 'https://localhost:9446';
-const OPENFGC_BASE = 'http://localhost:3000';
+const APIM_BASE = process.env.APIM_BASE || 'https://localhost:9443';
+const APIM_GW = process.env.APIM_GW || 'https://localhost:8243';
+const IS_BASE = process.env.IS_BASE || 'https://localhost:9446';
+const IS_PUBLIC_BASE = process.env.IS_PUBLIC_BASE || 'https://localhost:9446';
+const OPENFGC_BASE = process.env.OPENFGC_BASE || 'http://localhost:3000';
 const APIM_AUTH = 'Basic ' + Buffer.from('admin:admin').toString('base64');
 const IS_AUTH = 'Basic ' + Buffer.from('admin:admin').toString('base64');
 const ORG_ID = 'DEMO-ORG-001';
@@ -52,7 +53,7 @@ const CONSENT_ELEMENTS = [
   { name: 'marital_status', jsonPath: '$.person.marital_status', mandatory: false, display: 'Marital Status' },
   { name: 'tax_id', jsonPath: '$.person.tax_id', mandatory: false, display: 'Tax ID' },
   { name: 'source_of_funds', jsonPath: '$.person.source_of_funds', mandatory: false, display: 'Source of Funds' },
-  { name: 'contact', jsonPath: '$.person.contact', mandatory: false, display: 'Contact Details' },
+  { name: 'contact', jsonPath: '$.person.contact', mandatory: false, display: 'Address' },
   { name: 'identifiers', jsonPath: '$.person.identifiers', mandatory: false, display: 'Identity Documents' },
   { name: 'employment', jsonPath: '$.person.employment', mandatory: false, display: 'Employment Details' },
 ];
@@ -67,7 +68,7 @@ async function setup() {
   console.log('[Setup] Starting bank portal initialization...');
 
   // Load private key
-  const keyPath = path.join(__dirname, '..', 'ciba-test-key.pem');
+  const keyPath = process.env.PRIVATE_KEY_PATH || path.join(__dirname, '..', 'ciba-test-key.pem');
   if (!fs.existsSync(keyPath)) {
     console.error('[Setup] FATAL: ciba-test-key.pem not found at', keyPath);
     process.exit(1);
@@ -204,7 +205,7 @@ async function configureISApp() {
   }
 
   // Set auth sequence
-  const scriptPath = path.join(__dirname, '..', 'is-conditional-script.js');
+  const scriptPath = process.env.IS_SCRIPT_PATH || path.join(__dirname, '..', 'is-conditional-script.js');
   const script = fs.readFileSync(scriptPath, 'utf8');
 
   await apiFetch(`${IS_BASE}/api/server/v1/applications/${isAppId}`, {
@@ -238,61 +239,54 @@ async function configureISApp() {
 
 // ===== Consent + CIBA helpers =====
 
-async function createConsentInOpenFGC() {
+async function createConsentInOpenFGC(selectedElements) {
   const headers = { 'org-id': ORG_ID, 'TPP-client-id': TPP_CLIENT_ID, 'Content-Type': 'application/json' };
 
-  // Ensure purpose exists
-  let r = await fetch(`${OPENFGC_BASE}/api/v1/consent-purposes`, { headers });
-  let purposeId = null;
-  if (r.ok) {
-    const data = await r.json();
-    const existing = (data.data || []).find(p => p.name === 'kyc_data_access' && p.clientId === TPP_CLIENT_ID);
-    if (existing) purposeId = existing.id;
+  // Filter elements to only those selected (mandatory always included)
+  const requestedElements = selectedElements
+    ? CONSENT_ELEMENTS.filter(e => e.mandatory || selectedElements.includes(e.name))
+    : CONSENT_ELEMENTS;
+
+  // Ensure all consent elements exist in OpenFGC
+  const existR = await fetch(`${OPENFGC_BASE}/api/v1/consent-elements`, { headers });
+  const existingNames = new Set();
+  if (existR.ok) {
+    const existData = await existR.json();
+    (existData.data || []).forEach(e => existingNames.add(e.name));
   }
 
-  if (!purposeId) {
-    // Create missing elements — check which already exist
-    const existR = await fetch(`${OPENFGC_BASE}/api/v1/consent-elements`, { headers });
-    const existingNames = new Set();
-    if (existR.ok) {
-      const existData = await existR.json();
-      (existData.data || []).forEach(e => existingNames.add(e.name));
-    }
-
-    const newElements = CONSENT_ELEMENTS.filter(e => !existingNames.has(e.name));
-    if (newElements.length > 0) {
-      const createR = await fetch(`${OPENFGC_BASE}/api/v1/consent-elements`, {
-        method: 'POST', headers,
-        body: JSON.stringify(newElements.map(elem => ({
-          name: elem.name, type: 'resource-field',
-          description: elem.display,
-          properties: { jsonPath: elem.jsonPath, resourcePath: '/user/{nic}' }
-        })))
-      });
-      if (!createR.ok) {
-        console.error('[Consent] Element creation failed:', createR.status, await createR.text());
-      }
-    }
-
-    // Create purpose
-    r = await fetch(`${OPENFGC_BASE}/api/v1/consent-purposes`, {
+  const newElements = CONSENT_ELEMENTS.filter(e => !existingNames.has(e.name));
+  if (newElements.length > 0) {
+    const createR = await fetch(`${OPENFGC_BASE}/api/v1/consent-elements`, {
       method: 'POST', headers,
-      body: JSON.stringify({
-        name: 'kyc_data_access',
-        description: 'KYC data access for bank account opening',
-        clientId: TPP_CLIENT_ID,
-        elements: CONSENT_ELEMENTS.map(e => ({ name: e.name, isMandatory: e.mandatory }))
-      })
+      body: JSON.stringify(newElements.map(elem => ({
+        name: elem.name, type: 'resource-field',
+        description: elem.display,
+        properties: { jsonPath: elem.jsonPath, resourcePath: '/user/{nic}' }
+      })))
     });
-    if (r.ok) {
-      const pData = await r.json();
-      purposeId = pData.id;
-    } else {
-      console.error('[Consent] Purpose creation failed:', r.status, await r.text());
+    if (!createR.ok) {
+      console.error('[Consent] Element creation failed:', createR.status, await createR.text());
     }
   }
 
-  // Create consent record
+  // Create a unique purpose per request with only the selected elements
+  const purposeName = `kyc_data_access_${Date.now()}`;
+  let r = await fetch(`${OPENFGC_BASE}/api/v1/consent-purposes`, {
+    method: 'POST', headers,
+    body: JSON.stringify({
+      name: purposeName,
+      description: 'KYC data access for bank account opening',
+      clientId: TPP_CLIENT_ID,
+      elements: requestedElements.map(e => ({ name: e.name, isMandatory: e.mandatory }))
+    })
+  });
+  if (!r.ok) {
+    console.error('[Consent] Purpose creation failed:', r.status, await r.text());
+    return null;
+  }
+
+  // Create consent record with the request-specific purpose
   r = await fetch(`${OPENFGC_BASE}/api/v1/consents`, {
     method: 'POST', headers,
     body: JSON.stringify({
@@ -301,8 +295,8 @@ async function createConsentInOpenFGC() {
       recurringIndicator: false,
       validityTime: 0, frequency: 0, dataAccessValidityDuration: 0,
       purposes: [{
-        name: 'kyc_data_access',
-        elements: CONSENT_ELEMENTS.map(e => ({ name: e.name, isUserApproved: false }))
+        name: purposeName,
+        elements: requestedElements.map(e => ({ name: e.name, isUserApproved: false }))
       }],
       authorizations: [], attributes: {}
     })
@@ -322,7 +316,7 @@ function createCIBARequestJWT(consentId) {
     iss: CLIENT_ID,
     iat: now,
     exp: now + 1500,
-    aud: `${IS_BASE}/oauth2/token`,
+    aud: `${IS_PUBLIC_BASE}/oauth2/token`,
     binding_message: 'KYCAccess',
     login_hint: 'john123',
     scope: 'openid gov',
@@ -354,19 +348,22 @@ async function initiateCIBA(consentId) {
   return null;
 }
 
-async function getWebAuthLink() {
-  try {
-    const { execSync } = require('child_process');
-    const logs = execSync('docker logs consent-is --tail 300 2>&1', { timeout: 10000 }).toString();
-    const lines = logs.split('\n').reverse();
-    for (const line of lines) {
-      if (line.includes('web_auth_link')) {
-        const match = line.match(/https?:\/\/[^\s"]+web_auth_link[^\s"]*/);
-        if (match) return match[0];
-      }
-    }
-  } catch (e) { /* ignore */ }
-  return null;
+async function getWebAuthLink(consentId, authReqId) {
+  // Construct the web auth link from known CIBA parameters
+  // nonce must be the auth_req_id so IS can correlate this with the CIBA session
+  const params = new URLSearchParams({
+    binding_message: 'KYCAccess',
+    client_id: CLIENT_ID,
+    nonce: authReqId,
+    response_type: 'cibaAuthCode',
+    scope: 'gov openid',
+    intent_id: consentId,
+    redirect_uri: REDIRECT_URI,
+    ciba_web_auth_link: 'true',
+    login_hint: 'john123',
+    prompt: 'consent'
+  });
+  return `${IS_PUBLIC_BASE}/oauth2/authorize?${params.toString()}`;
 }
 
 async function pollForToken(authReqId) {
@@ -411,11 +408,27 @@ setInterval(async () => {
         req.updatedAt = new Date().toISOString();
         continue;
       }
-      // Token received — invoke KYC API
-      req.status = 'approved';
+      // Token received — check consent status in OpenFGC before using token
       req.accessToken = result.access_token;
       req.updatedAt = new Date().toISOString();
 
+      try {
+        const consentR = await fetch(`${OPENFGC_BASE}/api/v1/consents/${req.consentId}`, {
+          headers: { 'org-id': ORG_ID }
+        });
+        if (consentR.ok) {
+          const consentData = await consentR.json();
+          const authStatus = (consentData.authorizations || []).find(a => a.authorizationStatus);
+          if (authStatus && authStatus.authorizationStatus === 'rejected') {
+            req.status = 'rejected';
+            req.statusMessage = 'Citizen denied the consent request';
+            req.updatedAt = new Date().toISOString();
+            continue;
+          }
+        }
+      } catch (e) { /* proceed with KYC call if check fails */ }
+
+      req.status = 'approved';
       const kycData = await invokeKYCAPI(result.access_token, req.nin);
       if (kycData.error) {
         req.status = 'error';
@@ -446,12 +459,12 @@ app.get('/api/config', (req, res) => {
 app.post('/api/kyc-request', async (req, res) => {
   if (!setupComplete) return res.status(503).json({ error: 'Setup not complete' });
 
-  const { nin, customerName, accountType } = req.body;
+  const { nin, customerName, accountType, elements } = req.body;
   if (!nin) return res.status(400).json({ error: 'NIN is required' });
 
   try {
     // 1. Create consent
-    const consentId = await createConsentInOpenFGC();
+    const consentId = await createConsentInOpenFGC(elements);
     if (!consentId) return res.status(500).json({ error: 'Failed to create consent' });
 
     // 2. Initiate CIBA
@@ -459,9 +472,7 @@ app.post('/api/kyc-request', async (req, res) => {
     if (!ciba) return res.status(500).json({ error: 'Failed to initiate CIBA authorization' });
 
     // 3. Get web auth link
-    // Small delay for IS to process
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    const webAuthLink = await getWebAuthLink();
+    const webAuthLink = await getWebAuthLink(consentId, ciba.authReqId);
 
     // 4. Create request record
     const kycReq = {
@@ -511,6 +522,13 @@ app.get('/api/requests/:id', (req, res) => {
     ...kycReq,
     accessToken: undefined // don't expose token to frontend
   });
+});
+
+app.delete('/api/requests/:id', (req, res) => {
+  const idx = kycRequests.findIndex(r => r.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: 'Not found' });
+  kycRequests.splice(idx, 1);
+  res.json({ ok: true });
 });
 
 // Serve citizen app notification endpoint — when bank creates a request,
