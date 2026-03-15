@@ -17,6 +17,10 @@ Thumbs.db
 # Keys (private) — keep public key and JWKS
 ciba-test-key.pem
 
+# Symlinks to external docs
+docs-apim
+docs-is
+
 # Temp
 tmp/
 *.tmp

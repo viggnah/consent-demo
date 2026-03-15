@@ -139,15 +139,21 @@ public class FSConsentServlet extends HttpServlet {
 
         String consentId = null;
 
+        // Log session data keys for debugging
+        log.info("Session data keys: {}", sessionData.keySet());
+
         // First, try to extract purposes from request object if present
         if (sessionData.has("spQueryParams")) {
             String spQueryParams = sessionData.getString("spQueryParams");
+            log.info("spQueryParams value: {}", spQueryParams);
             consentId = extractConsentIdFromQueryParams(spQueryParams);
 
             if (consentId != null && consentId.length() > 0) {
                 log.info("Extracted {} consentId from request object: {}",
                         consentId.length(), consentId);
             }
+        } else {
+            log.warn("sessionData does not contain spQueryParams key");
         }
 
         if (consentId == null || consentId.length() == 0) {
