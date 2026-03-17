@@ -23,7 +23,7 @@ const APIM_AUTH = 'Basic ' + Buffer.from('admin:admin').toString('base64');
 const IS_AUTH = 'Basic ' + Buffer.from('admin:admin').toString('base64');
 const ORG_ID = 'DEMO-ORG-001';
 const IS_KM_NAME = 'WSO2 Identity Server';
-const REDIRECT_URI = 'https://oidcdebugger.com/debug';
+const REDIRECT_URI = process.env.REDIRECT_URI || 'http://localhost:3011/auth-callback.html';
 const KYC_API_NAME = 'KYCAPI';
 
 // Disable TLS verification for self-signed certs (demo only)
@@ -54,7 +54,7 @@ const CONSENT_ELEMENTS = [
   { name: 'marital_status', jsonPath: '$.person.marital_status', mandatory: false, display: 'Marital Status' },
   { name: 'tax_id', jsonPath: '$.person.tax_id', mandatory: false, display: 'Tax ID' },
   { name: 'source_of_funds', jsonPath: '$.person.source_of_funds', mandatory: false, display: 'Source of Funds' },
-  { name: 'contact', jsonPath: '$.person.contact', mandatory: false, display: 'Address' },
+  { name: 'contact', jsonPath: '$.person.contact', mandatory: false, display: 'Contact Details' },
   { name: 'identifiers', jsonPath: '$.person.identifiers', mandatory: false, display: 'Identity Documents' },
   { name: 'employment', jsonPath: '$.person.employment', mandatory: false, display: 'Employment Details' },
 ];
@@ -111,7 +111,9 @@ async function setup() {
       CLIENT_SECRET = usableKey.consumerSecret;
       TPP_CLIENT_ID = CLIENT_ID;
       console.log(`[Setup] Reusing existing app ${APP_ID} with keys`);
+      await configureISApp();
       setupComplete = true;
+      console.log('[Setup] Bank portal ready!');
       return;
     }
     // Stale — delete and recreate
@@ -235,17 +237,43 @@ async function configureISApp() {
     })
   });
 
+  // Clean up stale IS apps (old renamed apps and old admin_*_PRODUCTION apps)
+  const TARGET_IS_NAME = 'National Bank KYC Portal';
+  for (const app of (isApps.applications || [])) {
+    if (app.id === isAppId) continue;
+    const isStale = app.name === TARGET_IS_NAME || (app.name.startsWith('admin_') && app.name.endsWith('_PRODUCTION'));
+    if (isStale) {
+      try {
+        await apiFetch(`${IS_BASE}/api/server/v1/applications/${app.id}`, {
+          method: 'DELETE', headers: { Authorization: IS_AUTH }
+        });
+        console.log(`[Setup] Cleaned up stale IS app ${app.id} (${app.name})`);
+      } catch (e) { /* ignore */ }
+    }
+  }
+
+  // Rename app to a proper display name
+  await apiFetch(`${IS_BASE}/api/server/v1/applications/${isAppId}`, {
+    method: 'PATCH',
+    headers: { Authorization: IS_AUTH, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name: TARGET_IS_NAME,
+      description: 'National Bank Branch Portal - KYC Consent Demo'
+    })
+  });
+
   console.log(`[Setup] IS app ${isAppId} configured`);
 }
 
 // ===== Consent + CIBA helpers =====
 
-async function createConsentInOpenFGC(selectedElements) {
+async function createConsentInOpenFGC(selectedElements, mandatoryElements) {
   const headers = { 'org-id': ORG_ID, 'TPP-client-id': TPP_CLIENT_ID, 'Content-Type': 'application/json' };
 
-  // Filter elements to only those selected (mandatory always included)
+  // Filter elements to only those selected
+  const mandatorySet = new Set(mandatoryElements || CONSENT_ELEMENTS.filter(e => e.mandatory).map(e => e.name));
   const requestedElements = selectedElements
-    ? CONSENT_ELEMENTS.filter(e => e.mandatory || selectedElements.includes(e.name))
+    ? CONSENT_ELEMENTS.filter(e => selectedElements.includes(e.name))
     : CONSENT_ELEMENTS;
 
   // Ensure all consent elements exist in OpenFGC
@@ -279,7 +307,7 @@ async function createConsentInOpenFGC(selectedElements) {
       name: purposeName,
       description: 'KYC data access for bank account opening',
       clientId: TPP_CLIENT_ID,
-      elements: requestedElements.map(e => ({ name: e.name, isMandatory: e.mandatory }))
+      elements: requestedElements.map(e => ({ name: e.name, isMandatory: mandatorySet.has(e.name) }))
     })
   });
   if (!r.ok) {
@@ -430,12 +458,14 @@ setInterval(async () => {
       } catch (e) { /* proceed with KYC call if check fails */ }
 
       req.status = 'approved';
+      req.statusMessage = 'Consent approved, fetching KYC data...';
       const kycData = await invokeKYCAPI(result.access_token, req.nin);
       if (kycData.error) {
         req.status = 'error';
         req.statusMessage = `API Error: ${kycData.error}`;
       } else {
         req.status = 'data_available';
+        req.statusMessage = 'KYC data verified and available';
         req.kycData = kycData;
       }
       req.updatedAt = new Date().toISOString();
@@ -453,19 +483,19 @@ app.get('/api/status', (req, res) => {
 
 app.get('/api/config', (req, res) => {
   res.json({
-    elements: CONSENT_ELEMENTS.map(e => ({ name: e.name, display: e.display, mandatory: e.mandatory }))
+    elements: CONSENT_ELEMENTS.map(e => ({ name: e.name, display: e.display, mandatory: e.mandatory, defaultMandatory: e.mandatory }))
   });
 });
 
 app.post('/api/kyc-request', async (req, res) => {
   if (!setupComplete) return res.status(503).json({ error: 'Setup not complete' });
 
-  const { nin, customerName, accountType, elements } = req.body;
+  const { nin, customerName, accountType, elements, mandatoryElements } = req.body;
   if (!nin) return res.status(400).json({ error: 'NIN is required' });
 
   try {
     // 1. Create consent
-    const consentId = await createConsentInOpenFGC(elements);
+    const consentId = await createConsentInOpenFGC(elements, mandatoryElements);
     if (!consentId) return res.status(500).json({ error: 'Failed to create consent' });
 
     // 2. Initiate CIBA

@@ -182,6 +182,25 @@ body {
 .checklist label.mandatory { font-weight: 600; }
 .checklist input[type="checkbox"] { accent-color: var(--brand-mid); }
 
+/* Element row (checkbox + mandatory/optional dropdown) */
+.element-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px; background: #fafafa; border: 1px solid #eee;
+  border-radius: 4px; transition: background .15s;
+}
+.element-row:hover { background: #f0f4ff; }
+.element-check {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 13px; cursor: pointer; flex: 1;
+}
+.element-check input[type="checkbox"] { accent-color: var(--brand-mid); }
+.element-type {
+  font-size: 12px; padding: 4px 8px;
+  border: 1px solid var(--border); border-radius: 4px;
+  background: #fff; color: var(--text-primary);
+  cursor: pointer;
+}
+
 /* Result panel */
 .result-panel {
   margin-top: 20px; background: #e8f5e9; border: 1px solid #a5d6a7;
@@ -230,6 +249,37 @@ body {
 
 /* Empty state */
 .empty-state { text-align: center; padding: 40px; color: var(--text-muted); }
+
+/* Post-KYC Workflow */
+.workflow-section { background: #f3f0ff; border: 1px solid #d1c4e9; border-radius: 6px; padding: 20px; }
+.workflow-actions { display: flex; flex-direction: column; gap: 10px; }
+.btn-workflow {
+  display: flex; align-items: center; gap: 14px;
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: 8px; padding: 14px 16px;
+  text-align: left; cursor: pointer; transition: all .15s;
+}
+.btn-workflow:hover { border-color: var(--brand-light); box-shadow: 0 2px 8px rgba(63,81,181,.12); }
+.workflow-icon { font-size: 24px; width: 36px; text-align: center; flex-shrink: 0; }
+.workflow-text { display: flex; flex-direction: column; gap: 2px; }
+.workflow-text strong { font-size: 14px; color: var(--text-primary); }
+.workflow-text small { font-size: 12px; color: var(--text-secondary); }
+.workflow-result {
+  margin-top: 12px; padding: 14px 16px; border-radius: 6px;
+  font-size: 13px;
+}
+.workflow-processing { background: #fff3e0; border: 1px solid #ffcc80; }
+.workflow-success { background: #e8f5e9; border: 1px solid #a5d6a7; }
+.workflow-progress {
+  height: 4px; background: #ffe0b2; border-radius: 2px;
+  margin-top: 8px; overflow: hidden;
+}
+.workflow-progress-bar {
+  height: 100%; width: 0; background: var(--brand-accent);
+  border-radius: 2px;
+  animation: progressFill 2s ease-out forwards;
+}
+@keyframes progressFill { to { width: 100%; } }
 
 /* Footer */
 .footer {

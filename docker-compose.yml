@@ -142,6 +142,7 @@ services:
       IS_PUBLIC_BASE: "https://localhost:9446"
       OPENFGC_BASE: "http://consent-openfgc:3000"
       JWKS_INTERNAL_URL: "http://consent-jwks:80/jwks.json"
+      REDIRECT_URI: "http://localhost:3011/auth-callback.html"
       PRIVATE_KEY_PATH: "/keys/ciba-test-key.pem"
       IS_SCRIPT_PATH: "/keys/is-conditional-script.js"
       NODE_TLS_REJECT_UNAUTHORIZED: "0"
@@ -169,6 +170,7 @@ services:
       - "3011:3011"
     environment:
       BANK_PORTAL_URL: "http://consent-bank-portal:3010"
+      OPENFGC_BASE: "http://consent-openfgc:3000"
     depends_on:
       bank-portal:
         condition: service_healthy
