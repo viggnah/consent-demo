@@ -1,4 +1,20 @@
 services:
+  # JWKS Endpoint (serves public keys for JWT signature verification)
+  jwks-server:
+    image: nginx:alpine
+    container_name: consent-jwks
+    ports:
+      - "8899:80"
+    volumes:
+      - ./jwks.json:/usr/share/nginx/html/jwks.json:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:80/jwks.json"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - consent-network
+
   # MySQL database for OpenFGC
   mysql:
     image: mysql:8.0
@@ -125,6 +141,7 @@ services:
       IS_BASE: "https://consent-is:9446"
       IS_PUBLIC_BASE: "https://localhost:9446"
       OPENFGC_BASE: "http://consent-openfgc:3000"
+      JWKS_INTERNAL_URL: "http://consent-jwks:80/jwks.json"
       PRIVATE_KEY_PATH: "/keys/ciba-test-key.pem"
       IS_SCRIPT_PATH: "/keys/is-conditional-script.js"
       NODE_TLS_REJECT_UNAUTHORIZED: "0"

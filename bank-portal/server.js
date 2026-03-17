@@ -18,6 +18,7 @@ const APIM_GW = process.env.APIM_GW || 'https://localhost:8243';
 const IS_BASE = process.env.IS_BASE || 'https://localhost:9446';
 const IS_PUBLIC_BASE = process.env.IS_PUBLIC_BASE || 'https://localhost:9446';
 const OPENFGC_BASE = process.env.OPENFGC_BASE || 'http://localhost:3000';
+const JWKS_INTERNAL_URL = process.env.JWKS_INTERNAL_URL || 'http://localhost:8899/jwks.json';
 const APIM_AUTH = 'Basic ' + Buffer.from('admin:admin').toString('base64');
 const IS_AUTH = 'Basic ' + Buffer.from('admin:admin').toString('base64');
 const ORG_ID = 'DEMO-ORG-001';
@@ -229,7 +230,7 @@ async function configureISApp() {
     headers: { Authorization: IS_AUTH, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       advancedConfigurations: {
-        certificate: { type: 'JWKS', value: 'http://host.docker.internal:8899/jwks.json' }
+        certificate: { type: 'JWKS', value: JWKS_INTERNAL_URL }
       }
     })
   });
