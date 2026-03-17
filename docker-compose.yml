@@ -87,6 +87,8 @@ services:
       CONSENT_CLIENT_ID: "YSZ6l_tcxc7wTtuGzaEyopAZ_SIa"
       IS_BASE_URL: "https://localhost:9446"
       IS_ADMIN_AUTH: "Basic YWRtaW46YWRtaW4="
+    volumes:
+      - "./consent-accelerator-v1/consent-authentication-webapp/src/main/webapp/default_consent.jsp:/home/wso2carbon/wso2is-7.1.0/repository/deployment/server/webapps/fs#authenticationendpoint/default_consent.jsp:ro"
     depends_on:
       openfgc:
         condition: service_healthy
