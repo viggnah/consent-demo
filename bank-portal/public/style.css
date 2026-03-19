@@ -129,6 +129,7 @@ body {
 .badge-pending { background: #e3f2fd; color: var(--pending); }
 .badge-approved, .badge-data { background: #e8f5e9; color: var(--success); }
 .badge-rejected { background: #fbe9e7; color: var(--danger); }
+.badge-revoked { background: #fce4ec; color: #880e4f; }
 .badge-error { background: #fff3e0; color: var(--warning); }
 
 /* Form */

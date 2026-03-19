@@ -12,7 +12,7 @@ A consent management demo showing how a Third-Party Provider (TPP) can access ci
 | **MySQL 8.0** | OpenFGC database | 3306 | `consent-mysql` |
 | **Bank Portal** | Node.js Express | 3010 | `consent-bank-portal` |
 | **Citizen App** | Node.js Express | 3011 | `consent-citizen-app` |
-| **JWKS Server** | Python HTTP | 8899 | (host) |
+| **JWKS Server** | nginx:alpine | 8899 | `consent-jwks` |
 
 ---
 
@@ -454,10 +454,93 @@ A consent management demo showing how a Third-Party Provider (TPP) can access ci
 
 ## Outstanding / Known Issues
 
-1. **Approve + Reject flow needs browser testing**: The nonce=auth_req_id fix (Step 43) needs manual browser verification — create KYC request, open web auth link, login as john123/John@123, approve/reject, verify bank portal status updates.
-2. **Reject redirects to oidcdebugger.com**: This is expected OIDC behavior — IS redirects to the configured `redirect_uri` with `error=access_denied`. The bank portal detects rejection via the CIBA token poll error, not via the redirect. The citizen should close the browser tab after seeing the redirect.
-3. **JWKS server still on host**: Runs via `python3 -m http.server 8899` on the host machine. Bank portal references it via `host.docker.internal:8899`. Could be dockerized for full docker-compose coverage.
-4. **docker-compose.yml `version: '3.8'`**: Generates deprecation warning — attribute is obsolete in modern Docker Compose.
+1. ~~**Approve + Reject flow needs browser testing**~~: ✅ Verified — both flows work end-to-end.
+2. ~~**Reject redirects to oidcdebugger.com**~~: ✅ Fixed — `REDIRECT_URI` changed to `http://localhost:3011/auth-callback.html`, citizen app now receives the redirect and shows a styled denied/approved page.
+3. ~~**JWKS server still on host**~~: ✅ Fixed — now a `consent-jwks` Docker container using `nginx:alpine` serving `jwks.json` on port 8899.
+4. ~~**docker-compose.yml `version: '3.8'`**~~: ✅ Fixed — attribute removed.
+
+---
+
+## Phase 7: UI Beautification & Fixes (Sessions 10–11)
+
+### Step 50: Consent Page Beautification ✅
+- **Problem**: The IS consent page (`fs_default.jsp` + includes) used WSO2's default grey/orange enterprise styling
+- **Investigation**: Discovered the actual consent page is `fs_default.jsp` which includes `basic-consent-data.jsp`, `account-selection.jsp`, and `confirmation-dialogue.jsp` — NOT `default_consent.jsp` (which is unused)
+- **Fix**: Redesigned all 4 JSP files with a cohesive blue-gradient government portal theme:
+  - `fs_default.jsp`: Blue gradient background (`#1e3a5f` → `#2d5986`), white card with shield icon header
+  - `basic-consent-data.jsp`: Clean table with alternating rows, mandatory (blue) / optional (grey) badges
+  - `account-selection.jsp`: Styled info section
+  - `confirmation-dialogue.jsp`: Green approve / red deny buttons with proper spacing
+- **Rebuild**: `mvn clean install`, copy WAR, `docker compose build identity-server && docker compose up -d`
+
+### Step 51: CIBA Approval Page — Close Button ✅
+- **Problem**: After approving consent, IS redirects to `ciba.jsp` which only showed "You may now close this window" as plain text
+- **Fix**: Replaced with a styled `<button onclick="window.close()">Close this window</button>` matching the blue gradient theme
+- **File**: `docker/is/ciba.jsp` → baked into IS Docker image via Dockerfile
+
+### Step 52: Auth Callback Retheme ✅
+- **Problem**: `citizen-app/public/auth-callback.html` (shown after consent deny via IS redirect with `?error=access_denied`) used a light grey `#f5f5f5` background that didn't match the beautified consent pages
+- **Fix**: Completely rethemed to match the blue gradient portal style:
+  - Same blue gradient background, white card, portal header with shield icon
+  - "Consent Approved" shows in green, "Consent Denied" shows in red
+  - Close button styled identically to `ciba.jsp`
+- **Bug found during implementation**: Multi-replace introduced a duplicate variable (`var title` and `var titleEl`) → fixed immediately
+
+### Step 53: Test User Auto-Creation ✅
+- **Problem**: Test user `john123` was lost every time IS container was recreated (IS uses ephemeral H2 DB)
+- **Fix**: Added `ensureTestUser()` function to `bank-portal/server.js` that creates `john123`/`John@123` via SCIM2 API during `setup()`
+- Logs `[Setup] Created test user john123` on success, silently continues if user already exists
+
+### Step 54: isMandatory Display Fix ✅
+- **Problem**: Citizen app history view showed ALL consent elements as "Optional" — mandatory ones weren't labeled correctly
+- **Root cause**: OpenFGC's `GET /consents/:id` returns elements with only `name` and `isUserApproved` — no `isMandatory` field. The `isMandatory` lives in the purpose definition (`GET /consent-purposes?name=...`).
+- **Fix in `citizen-app/server.js`**: The `/api/consents/:id` endpoint now fetches the matching purpose by name, builds a map of element→isMandatory, and merges it into each element before returning to the frontend.
+
+### Step 55: API Error 403 — Missing Element Properties ✅
+- **Problem**: After consent approval, bank portal showed `API Error: 403` — KYC data couldn't be retrieved through the gateway
+- **Root cause (traced via APIM logs)**: Consent enforcement policy checks `element.properties && element.properties.resourcePath` for each approved element. Old consent elements in MySQL had no entries in `CONSENT_ELEMENT_PROPERTY` table (properties were null).
+- **Why**: Elements were created before `bank-portal/server.js` was updated to include `properties: { jsonPath, resourcePath }` in the POST body
+- **Fix**: Created `purge-consents.sh` (see Step 56) to wipe stale data. On next KYC request, `createConsentInOpenFGC()` creates fresh elements WITH properties.
+- **Verification**: Confirmed via SQL query that new elements have both `jsonPath` and `resourcePath` in `CONSENT_ELEMENT_PROPERTY` table
+
+### Step 56: Purge Consents Script ✅
+- **Problem**: Old consent data with missing element properties couldn't be fixed in place — OpenFGC has no update-element-properties API. Needed a clean slate.
+- **Implementation**: `purge-consents.sh` — bash script that deletes all consent data in FK-safe order via `docker exec`:
+  1. `CONSENT_ELEMENT_APPROVAL` (references PURPOSE_ELEMENT_MAPPING + PURPOSE_CONSENT_MAPPING)
+  2. `CONSENT_AUTH_RESOURCE`, `CONSENT_STATUS_AUDIT`, `CONSENT_ATTRIBUTE` (reference CONSENT)
+  3. `PURPOSE_CONSENT_MAPPING`, `PURPOSE_ELEMENT_MAPPING` (reference CONSENT_PURPOSE + CONSENT_ELEMENT)
+  4. `CONSENT`, `CONSENT_PURPOSE` (top-level)
+  5. `CONSENT_ELEMENT_PROPERTY`, `CONSENT_ELEMENT` (element + properties)
+- **Gotcha #1**: Initial script piped heredoc to `grep` instead of `docker exec` (`docker exec ... 2>&1 | grep <<SQL` vs `docker exec -i ... <<SQL 2>&1 | grep`) — silently did nothing
+- **Gotcha #2**: First FK deletion order was wrong — `PURPOSE_ELEMENT_MAPPING` has a RESTRICT FK from `CONSENT_ELEMENT_APPROVAL`, so APPROVAL must be deleted first
+- **Final fix**: Correct order verified by reading `db_schema_mysql.sql` FK constraints
+- After purge, script auto-restarts `bank-portal` so it recreates elements with properties on next startup
+
+---
+
+## Phase 8: Consent Revocation (Session 12)
+
+### Step 57: Revocation Detection — Initial Hack ❌ → Gateway-Based Fix ✅
+- **Problem**: After citizen revokes consent in citizen-app, bank portal still showed "Data Ready" with all KYC data visible
+- **Attempt 1 (hack)**: Added a `setInterval` that polled OpenFGC directly every 5 seconds, checking `consent.status === 'REVOKED'` for all `data_available` requests
+  - ❌ **Architecturally wrong** — bank portal shouldn't talk directly to OpenFGC for authorization decisions; that's the gateway's job
+- **Attempt 2 (proper)**: Replaced with gateway-based revocation detection:
+  - **How it works**: The APIM enforcement policy already calls OpenFGC's `/validate` endpoint on every API request. When consent is revoked, `ValidateConsent()` returns `isValid: false, errorMessage: "invalid_consent_status"` → gateway returns HTTP 401 with `type: "Consent Validation Failed"`
+  - **Changes to `invokeKYCAPI()`**: Now parses the gateway error response and sets `consentRevoked: true` when it detects the enforcement policy rejection
+  - **On-demand check**: `GET /api/requests/:id` (detail endpoint) re-calls the KYC API through the gateway before returning. If gateway rejects → instant revocation detection when bank officer clicks "View"
+  - **Background check**: `setInterval` every 10 seconds re-validates `data_available` requests through the gateway (not OpenFGC directly)
+  - When revoked: `status='revoked'`, `kycData=null`, status message includes timestamp
+
+### Step 58: Revoked Status in Frontend ✅
+- **app.js**: Added `'revoked': ['Revoked', 'badge-revoked']` to status badge map
+- **style.css**: Added `.badge-revoked { background: #fce4ec; color: #880e4f; }` (dark pink on light pink)
+- **Dashboard**: Revoked requests count under the "Rejected" stat
+- **Detail view**: Since `kycData` is nulled on revocation, the "Verified KYC Data" section and "Next Steps" workflow buttons don't render — only the status message shows
+
+### Token Lifecycle Analysis (Documented) ✅
+- **Existing valid token + revoked consent**: Token is still valid at IS level, but gateway enforcement blocks every API call because it validates consent status → 401
+- **Refresh token**: IS token endpoint doesn't re-check consent, but any API call with the refreshed token hits gateway enforcement → blocked
+- **Completely new request**: Creates a brand new consent + new CIBA auth request → triggers fresh citizen approval flow from scratch
 
 ---
 
@@ -465,44 +548,68 @@ A consent management demo showing how a Third-Party Provider (TPP) can access ci
 
 ```
 consent-demo/
-├── PROGRESS.md                     # This file
-├── demo.py                         # Main demo script (interactive, 5 phases)
-├── docker-compose.yml              # Infrastructure (7 containers)
+├── PROGRESS.md                     # This file — complete progress log
+├── README.md                       # Project overview and quick-start guide
+├── SKILL.md                        # Automated setup guide for AI agents
+├── demo.py                         # Interactive demo script (5 phases)
+├── purge-consents.sh               # Wipe all consent data from MySQL (FK-safe)
+├── docker-compose.yml              # Infrastructure (8 containers)
 ├── deployment.toml                 # IS deployment config
-├── instructions.md                 # Original setup instructions
-├── is-conditional-script.js        # IS conditional auth script
-├── ciba-test-key.pem               # RSA private key (PS256 signing)
+├── instructions.md                 # Original setup instructions / brief
+├── is-conditional-script.js        # IS conditional auth script (routes CIBA to Step 2)
+├── ciba-test-key.pem               # RSA private key (PS256 signing) — gitignored
 ├── ciba-test-key-pub.pem           # RSA public key
-├── jwks.json                       # JWKS endpoint data (served by Python HTTP)
-├── ciba.jsp                        # CIBA success page for IS
-├── docker/                         # Docker configs
+├── jwks.json                       # JWKS endpoint data (served by nginx container)
+├── ciba.jsp                        # Unused (original copy — actual one is docker/is/ciba.jsp)
+├── docker/                         # Docker build contexts and configs
 │   ├── apim/                       # APIM Dockerfile + dropins
-│   ├── is/                         # IS Dockerfile + dropins + webapp
-│   ├── mysql/                      # MySQL init
-│   └── openfgc/                    # OpenFGC Dockerfile
-├── bank-portal/                    # Bank Officer Portal (branch officer UI)
+│   │   ├── Dockerfile
+│   │   └── dropins/                # consent-enforcement-payload-mediator JAR
+│   ├── is/                         # IS Dockerfile + dropins + webapp + ciba.jsp
+│   │   ├── Dockerfile
+│   │   ├── ciba.jsp                # Styled CIBA success page (baked into IS image)
+│   │   ├── deployment.toml
+│   │   ├── dropins/                # CIBA authenticator + consent utils JARs
+│   │   └── webapps/                # fs#authenticationendpoint.war
+│   ├── mysql/
+│   │   └── init.sql                # DB creation script
+│   └── openfgc/
+│       └── conf/deployment.yaml    # OpenFGC server + DB config
+├── bank-portal/                    # Bank Officer Portal
 │   ├── Dockerfile
-│   ├── server.js                   # Express backend (APIM, IS, CIBA, OpenFGC integration)
-│   └── public/                     # Static HTML/CSS/JS frontend
-│       ├── index.html
-│       ├── app.js
-│       └── style.css
+│   ├── package.json
+│   ├── server.js                   # Express backend (auto-setup, CIBA, consent, revocation)
+│   └── public/                     # Static frontend
+│       ├── index.html              # Full branch officer interface
+│       ├── app.js                  # Dashboard, requests, detail view logic
+│       └── style.css               # Portal styling
 ├── citizen-app/                    # Citizen Mobile Consent App
 │   ├── Dockerfile
-│   ├── server.js                   # Express proxy to bank portal
-│   └── public/                     # Mobile-viewport static frontend
+│   ├── package.json
+│   ├── server.js                   # Express proxy (OpenFGC + purpose enrichment)
+│   └── public/                     # Mobile-optimised static frontend
+│       ├── index.html              # MyGov ID interface (home, history, profile)
+│       └── auth-callback.html      # Post-consent redirect page (blue theme)
 ├── mock-backend/                   # Mock KYC API
 │   ├── Dockerfile
-│   └── server.js
-├── scripts/                        # Setup scripts & JSON payloads
-├── consent-accelerator-v1/         # Java source (4 modules)
-│   ├── consent-accelerator-utils/  # Shared utils (ConsentUtils.java)
-│   ├── consent-authentication-webapp/  # Consent UI (FSConsentServlet, JSP)
-│   ├── consent-mediation/          # APIM mediator + policy templates
-│   └── pom.xml
-├── openfgc/                        # OpenFGC source (Go)
-├── docs-apim/                      # APIM API docs
-└── docs-is/                        # IS API docs
+│   └── server.js                   # Returns person KYC data by NIN
+├── scripts/                        # Setup scripts & JSON payloads (reference)
+│   ├── setup-consent-data.sh       # Creates elements/purpose/consent via curl
+│   ├── consentEnforcementPolicy.yaml  # APIM request flow policy spec
+│   ├── consentResponseFilterPolicy.yaml  # APIM response flow policy spec
+│   ├── create-is-app.json          # IS OIDC app template
+│   ├── create-purpose.json         # OpenFGC purpose payload
+│   ├── is-key-manager.json         # APIM Key Manager config
+│   └── update-api.json             # KYC API definition with policies
+├── consent-accelerator-v1/         # Java source (4 Maven modules)
+│   ├── pom.xml
+│   ├── consent-accelerator-utils/  # ConsentUtils — consent ID ↔ scope mapping
+│   ├── consent-authentication-webapp/  # Consent UI (FSConsentServlet, JSPs)
+│   ├── consent-mediation/          # APIM mediator + policy templates (.j2)
+│   └── ...
+├── openfgc/                        # OpenFGC source (Go) — built via Dockerfile
+├── docs-apim                       # APIM API docs (symlink, gitignored)
+└── docs-is                         # IS API docs (symlink, gitignored)
 ```
 
 ---
@@ -510,7 +617,7 @@ consent-demo/
 ## Build & Deploy Quick Reference
 
 ```bash
-# Build all Java modules:
+# Build all Java modules (requires Java 17 + Maven):
 cd consent-accelerator-v1 && mvn clean install -DskipTests -q
 
 # Outputs:
@@ -519,11 +626,12 @@ cd consent-accelerator-v1 && mvn clean install -DskipTests -q
 # docker/is/webapps/fs#authenticationendpoint.war
 # docker/apim/dropins/consent-enforcement-payload-mediator-1.0.0-SNAPSHOT.jar
 
-# Start all infrastructure (7 containers):
+# Start all infrastructure (8 containers):
 docker compose up -d
+# Startup takes ~3–4 minutes (IS and APIM need ~2 min each for healthy)
 
-# Start JWKS server (on host, still needed):
-cd /path/to/consent-demo && python3 -m http.server 8899 &
+# Purge stale consent data (run if you see 403 errors or want a clean slate):
+./purge-consents.sh
 
 # Deploy WAR update to running IS (without full rebuild):
 docker cp docker/is/webapps/fs#authenticationendpoint.war consent-is:/home/wso2carbon/wso2is-7.1.0/repository/deployment/server/webapps/
@@ -534,8 +642,9 @@ docker exec consent-is rm -rf /home/wso2carbon/wso2is-7.1.0/repository/deploymen
 docker compose build bank-portal && docker compose up -d bank-portal
 docker compose build citizen-app && docker compose up -d citizen-app
 docker compose build mock-backend && docker compose up -d mock-backend
+docker compose build identity-server && docker compose up -d identity-server  # for JSP/JAR/TOML changes
 
-# Run demo:
+# Run interactive demo (Python, outside Docker):
 python3 demo.py
 ```
 
@@ -546,14 +655,19 @@ python3 demo.py
 1. **APIM strips Authorization header by default** — Use `[apim.jwt] enable = true` to get `X-JWT-Assertion` header instead
 2. **Synapse `<call blocking="true">` side effects** — Must save/restore `REST_URL_POSTFIX` and clear `RESPONSE`/`NO_ENTITY_BODY` after blocking calls
 3. **APIM max 5 revisions** — Must delete old revisions before creating new ones
-4. **IS H2 database is ephemeral** — Container recreation loses all identity data
+4. **IS H2 database is ephemeral** — Container recreation loses all identity data; bank-portal `ensureTestUser()` auto-creates john123
 5. **PS256 over RS256 for CIBA** — IS CIBA validator's algorithm name mapping issues with RS256
-6. **Base64URL vs Base64** — JWT payloads use URL-safe Base64 encoding
-7. **TPP Client ID vs OAuth Client ID** — Independent values; OpenFGC uses its own client ID
+6. **Base64URL vs Base64** — JWT payloads use URL-safe Base64 encoding (`getUrlDecoder()` not `getDecoder()`)
+7. **TPP Client ID vs OAuth Client ID** — Independent values; OpenFGC uses its own client ID configured via `CONSENT_CLIENT_ID` env var
 8. **APIM stale key mappings** — Ghost mappings can exist without actual keys; must detect and recreate app
 9. **WSO2 Maven repos unreliable** — Extract dependencies from Docker images as fallback
-10. **IS consent approve/deny strings** — IS `/oauth2/authorize` expects `"approve"` / `"deny"`, NOT `"true"` / `"false"`. The custom consent page's form field uses `true`/`false` but the servlet must translate to `approve`/`deny` when posting to IS's authorize endpoint.
-11. **CIBA web auth link nonce = auth_req_id** — IS uses the `nonce` parameter in the web auth link to correlate with the CIBA session. Must pass the actual `auth_req_id` from the CIBA response, not a random UUID.
-12. **Docker `restart` vs `build`** — `docker compose restart` reuses the existing image; code changes to sources require `docker compose build <service>` to rebuild the image.
-13. **Docker networking: IS_PUBLIC_BASE vs IS_BASE** — Inside Docker, services communicate via container names (`consent-is:9446`), but browser-facing URLs must use `localhost:9446` (port-mapped). Use separate env vars for server-to-server vs browser-facing URLs.
-14. **OpenFGC resolves ALL elements from purpose** — Cannot selectively include elements per consent from a shared purpose. Workaround: create a unique purpose per request with only the desired elements.
+10. **IS consent approve/deny strings** — IS `/oauth2/authorize` expects `"approve"` / `"deny"`, NOT `"true"` / `"false"`
+11. **CIBA web auth link nonce = auth_req_id** — IS uses the `nonce` parameter to correlate with the CIBA session
+12. **Docker `restart` vs `build`** — `docker compose restart` reuses the existing image; code changes require `docker compose build`
+13. **Docker networking: IS_PUBLIC_BASE vs IS_BASE** — Inside Docker use container names; browser-facing URLs must use `localhost` (port-mapped)
+14. **OpenFGC resolves ALL elements from purpose** — Cannot selectively include elements per consent. Workaround: create a unique purpose per request
+15. **Consent element properties are required** — The APIM enforcement policy checks `element.properties.resourcePath`; elements without properties cause 403. Always include `properties: { jsonPath, resourcePath }` in element creation
+16. **MySQL FK deletion order matters** — `CONSENT_ELEMENT_APPROVAL` must be deleted before `PURPOSE_ELEMENT_MAPPING` (RESTRICT constraint, not CASCADE)
+17. **Revocation should be enforced at the gateway, not polled** — OpenFGC's `/validate` endpoint already checks consent status; the APIM enforcement policy returns 401 for revoked consents. The bank portal should detect revocation by re-calling the KYC API through the gateway, not by polling OpenFGC directly.
+18. **Heredoc + pipe ordering in bash** — `docker exec ... <<SQL 2>&1 | grep` requires `-i` flag on `docker exec` and the heredoc must attach to `docker exec`, not to `grep`
+19. **JSP file discovery** — The actual consent page rendered by IS is `fs_default.jsp` (with includes), not `default_consent.jsp` which is a decoy/unused file

@@ -5,72 +5,78 @@
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
 <title>Consent Response</title>
 <style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
   body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    background: #f5f5f5;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    background: linear-gradient(135deg, #1e3a5f 0%, #2d5986 50%, #1a5276 100%);
     min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 24px;
+    display: flex; align-items: center; justify-content: center;
+    padding: 20px;
   }
+  .wrapper { width: 100%; max-width: 420px; text-align: center; }
+  .portal-header { color: #fff; margin-bottom: 28px; }
+  .portal-header .shield { font-size: 44px; display: block; margin-bottom: 12px; }
+  .portal-header h1 { font-size: 24px; font-weight: 700; letter-spacing: -0.5px; }
+  .portal-header p { font-size: 14px; color: rgba(255,255,255,0.7); margin-top: 6px; }
   .card {
     background: #fff;
     border-radius: 16px;
-    padding: 40px 32px;
-    text-align: center;
-    max-width: 380px;
-    width: 100%;
-    box-shadow: 0 4px 24px rgba(0,0,0,.08);
+    padding: 48px 36px;
+    box-shadow: 0 25px 50px rgba(0,0,0,.25);
   }
-  .icon {
-    width: 64px; height: 64px;
-    border-radius: 50%;
-    display: flex; align-items: center; justify-content: center;
-    margin: 0 auto 20px;
-    font-size: 32px;
-  }
-  .icon-approve { background: #e8f5e9; color: #2e7d32; }
-  .icon-deny { background: #fbe9e7; color: #c62828; }
-  h2 { font-size: 20px; margin-bottom: 8px; color: #212121; }
-  p { font-size: 14px; color: #616161; line-height: 1.5; margin-bottom: 16px; }
-  .hint { font-size: 12px; color: #9e9e9e; margin-top: 8px; }
+  .status-icon { font-size: 64px; display: block; margin-bottom: 20px; }
+  h2 { font-size: 22px; font-weight: 700; margin-bottom: 12px; }
+  h2.approve { color: #059669; }
+  h2.deny { color: #dc2626; }
+  p { font-size: 15px; color: #6b7280; line-height: 1.6; margin-bottom: 8px; }
+  .hint { font-size: 12px; color: #9ca3af; margin-top: 8px; }
   .close-btn {
-    display: inline-block; margin-top: 16px;
-    padding: 10px 28px; border: none; border-radius: 8px;
-    font-size: 14px; font-weight: 600; cursor: pointer;
-    color: #fff; background: #1565c0;
-    transition: background .2s;
+    display: inline-block; margin-top: 24px;
+    padding: 12px 32px; border: none; border-radius: 10px;
+    font-size: 15px; font-weight: 600; cursor: pointer;
+    color: #fff; background: linear-gradient(135deg, #1e3a5f, #2d5986);
+    transition: opacity .2s;
   }
-  .close-btn:hover { background: #0d47a1; }
+  .close-btn:hover { opacity: 0.85; }
+  .portal-footer {
+    text-align: center; margin-top: 24px;
+    font-size: 12px; color: rgba(255,255,255,0.5);
+  }
 </style>
 </head>
 <body>
-<div class="card" id="resultCard">
-  <div class="icon" id="icon"></div>
-  <h2 id="title"></h2>
-  <p id="message"></p>
-  <button class="close-btn" onclick="window.close()">Close this window</button>
-  <div class="hint">You can safely close this tab and return to the Citizen App.</div>
+<div class="wrapper">
+  <div class="portal-header">
+    <span class="shield">&#x1F6E1;&#xFE0F;</span>
+    <h1>Government Consent Portal</h1>
+    <p>Secure Data Authorization</p>
+  </div>
+  <div class="card" id="resultCard">
+    <span class="status-icon" id="icon"></span>
+    <h2 id="title"></h2>
+    <p id="message"></p>
+    <button class="close-btn" onclick="window.close()">Close this window</button>
+    <div class="hint">You can safely close this tab and return to the Citizen App.</div>
+  </div>
+  <div class="portal-footer">
+    &copy; Government Consent Portal <script>document.write(new Date().getFullYear());</script>
+  </div>
 </div>
 <script>
 (function() {
   var params = new URLSearchParams(window.location.search);
   var icon = document.getElementById('icon');
-  var title = document.getElementById('title');
+  var titleEl = document.getElementById('title');
   var message = document.getElementById('message');
-
   if (params.get('error')) {
-    icon.className = 'icon icon-deny';
-    icon.textContent = '✕';
-    title.textContent = 'Consent Denied';
+    icon.textContent = '\u274C';
+    titleEl.className = 'deny';
+    titleEl.textContent = 'Consent Denied';
     message.textContent = 'You have denied the data sharing request. No personal data will be shared with the requesting party.';
   } else {
-    icon.className = 'icon icon-approve';
-    icon.textContent = '✓';
-    title.textContent = 'Consent Approved';
+    icon.textContent = '\u2705';
+    titleEl.className = 'approve';
+    titleEl.textContent = 'Consent Approved';
     message.textContent = 'Your consent has been recorded. The requested data will be shared with the bank.';
   }
 })();

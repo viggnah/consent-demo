@@ -159,6 +159,7 @@ function statusBadge(status) {
     'approved': ['Approved', 'badge-approved'],
     'data_available': ['Data Ready', 'badge-data'],
     'rejected': ['Rejected', 'badge-rejected'],
+    'revoked': ['Revoked', 'badge-revoked'],
     'error': ['Error', 'badge-error'],
   };
   const [text, cls] = map[status] || [status, ''];
@@ -175,7 +176,7 @@ function updateDashboard(data) {
   document.getElementById('stat-total').textContent = data.length;
   document.getElementById('stat-pending').textContent = data.filter(r => r.status === 'pending_approval').length;
   document.getElementById('stat-approved').textContent = data.filter(r => r.status === 'data_available').length;
-  document.getElementById('stat-rejected').textContent = data.filter(r => r.status === 'rejected').length;
+  document.getElementById('stat-rejected').textContent = data.filter(r => r.status === 'rejected' || r.status === 'revoked').length;
 
   const tbody = document.getElementById('dashboard-tbody');
   const empty = document.getElementById('dashboard-empty');

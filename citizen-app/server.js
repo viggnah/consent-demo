@@ -39,13 +39,36 @@ app.get('/api/consents', async (req, res) => {
   }
 });
 
-// Get single consent details
+// Get single consent details — enriched with isMandatory from purpose definitions
 app.get('/api/consents/:id', async (req, res) => {
   try {
     const r = await fetch(`${OPENFGC_BASE}/api/v1/consents/${encodeURIComponent(req.params.id)}`, {
       headers: { 'org-id': ORG_ID }
     });
     const data = await r.json();
+
+    // Merge isMandatory from purpose definitions into consent elements
+    if (data.purposes && data.purposes.length > 0) {
+      await Promise.all(data.purposes.map(async (purpose) => {
+        if (!purpose.name) return;
+        try {
+          const pr = await fetch(
+            `${OPENFGC_BASE}/api/v1/consent-purposes?name=${encodeURIComponent(purpose.name)}`,
+            { headers: { 'org-id': ORG_ID } }
+          );
+          if (!pr.ok) return;
+          const pd = await pr.json();
+          const purposeDef = (pd.data || [])[0];
+          if (!purposeDef || !purposeDef.elements) return;
+          const mandatoryMap = {};
+          purposeDef.elements.forEach(e => { mandatoryMap[e.name] = e.isMandatory === true; });
+          (purpose.elements || []).forEach(el => {
+            el.isMandatory = mandatoryMap[el.name] || false;
+          });
+        } catch (e) { /* ignore enrichment error */ }
+      }));
+    }
+
     res.json(data);
   } catch (e) {
     console.error('Consent detail error:', e.message);

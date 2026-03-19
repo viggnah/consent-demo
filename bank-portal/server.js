@@ -262,7 +262,43 @@ async function configureISApp() {
     })
   });
 
+  // Auto-create test user
+  await ensureTestUser();
+
   console.log(`[Setup] IS app ${isAppId} configured`);
+}
+
+async function ensureTestUser() {
+  try {
+    const r = await apiFetch(`${IS_BASE}/scim2/Users?filter=userName+eq+john123`, {
+      headers: { Authorization: IS_AUTH, Accept: 'application/json' }
+    });
+    if (r.ok) {
+      const data = await r.json();
+      if (data.totalResults > 0) {
+        console.log('[Setup] Test user john123 already exists');
+        return;
+      }
+    }
+    const cr = await apiFetch(`${IS_BASE}/scim2/Users`, {
+      method: 'POST',
+      headers: { Authorization: IS_AUTH, 'Content-Type': 'application/scim+json' },
+      body: JSON.stringify({
+        schemas: ['urn:ietf:params:scim:schemas:core:2.0:User'],
+        userName: 'john123',
+        password: 'John@123',
+        name: { givenName: 'John', familyName: 'Doe' },
+        emails: [{ value: 'john@example.com', primary: true }]
+      })
+    });
+    if (cr.status === 201 || cr.status === 200) {
+      console.log('[Setup] Created test user john123');
+    } else {
+      console.warn('[Setup] Failed to create user john123:', cr.status, await cr.text());
+    }
+  } catch (e) {
+    console.warn('[Setup] Error creating test user:', e.message);
+  }
 }
 
 // ===== Consent + CIBA helpers =====
@@ -420,7 +456,14 @@ async function invokeKYCAPI(accessToken, nic) {
   if (r.ok) {
     return await r.json();
   }
-  return { error: r.status, body: await r.text() };
+  const body = await r.text();
+  let parsed;
+  try { parsed = JSON.parse(body); } catch (e) { parsed = {}; }
+  // Detect consent-level rejection from the gateway enforcement policy
+  if (parsed.type === 'Consent Validation Failed' || parsed.message === 'invalid_consent_status') {
+    return { error: r.status, consentRevoked: true, body };
+  }
+  return { error: r.status, body };
 }
 
 // ===== Background polling =====
@@ -474,6 +517,25 @@ setInterval(async () => {
     }
   }
 }, 4000);
+
+// ===== Revocation check — re-validate through the gateway =====
+// If consent is revoked, the gateway enforcement policy will reject the call
+// with type='Consent Validation Failed' / message='invalid_consent_status'.
+setInterval(async () => {
+  for (const req of kycRequests) {
+    if (req.status !== 'data_available' || !req.accessToken) continue;
+    try {
+      const result = await invokeKYCAPI(req.accessToken, req.nin);
+      if (result.consentRevoked) {
+        req.status = 'revoked';
+        req.statusMessage = `Consent revoked — gateway rejected access at ${new Date().toLocaleString()}`;
+        req.kycData = null;
+        req.updatedAt = new Date().toISOString();
+        console.log(`[Revoke] Request ${req.id} — gateway rejected (consent revoked)`);
+      }
+    } catch (e) { /* ignore transient errors */ }
+  }
+}, 10000);
 
 // ===== API Routes =====
 
@@ -545,9 +607,24 @@ app.get('/api/requests', (req, res) => {
   })));
 });
 
-app.get('/api/requests/:id', (req, res) => {
+app.get('/api/requests/:id', async (req, res) => {
   const kycReq = kycRequests.find(r => r.id === req.params.id);
   if (!kycReq) return res.status(404).json({ error: 'Not found' });
+
+  // For data_available requests, re-validate through the gateway on-demand.
+  // If the consent has been revoked the enforcement policy will reject the call.
+  if (kycReq.status === 'data_available' && kycReq.accessToken) {
+    try {
+      const result = await invokeKYCAPI(kycReq.accessToken, kycReq.nin);
+      if (result.consentRevoked) {
+        kycReq.status = 'revoked';
+        kycReq.statusMessage = `Consent revoked — gateway rejected access at ${new Date().toLocaleString()}`;
+        kycReq.kycData = null;
+        kycReq.updatedAt = new Date().toISOString();
+        console.log(`[Revoke] Request ${kycReq.id} — gateway rejected on detail view`);
+      }
+    } catch (e) { /* gateway unreachable — show cached state */ }
+  }
 
   res.json({
     ...kycReq,
