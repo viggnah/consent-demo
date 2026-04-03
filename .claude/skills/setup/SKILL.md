@@ -1,8 +1,9 @@
-# Consent-Based KYC API Demo — Setup & Operations Guide
-
-**Audience**: AI agents and developers who need to set up, test, and troubleshoot this demo from a fresh clone with minimal human intervention.
-
 ---
+name: setup
+description: Set up, verify, and operate the Consent-Based KYC API Demo from a fresh clone. Use this skill when an agent or developer needs to get the consent-demo running, troubleshoot issues, run end-to-end tests, or understand the system architecture. Covers Docker startup, APIM pre-publishing requirements, CIBA key generation, and full test procedures.
+---
+
+Work autonomously through each phase below to get the demo running from a fresh clone. Report blockers to the user only when human interaction is unavoidable (e.g., browser-based OAuth consent flows).
 
 ## Table of Contents
 
